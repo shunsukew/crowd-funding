@@ -1,27 +1,60 @@
 use schemars::JsonSchema;
+use cosmwasm_std::{Addr, Coin, Uint128};
 use serde::{Deserialize, Serialize};
+use crate::state::{Status};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub count: i32,
+    // project title
+    pub title: String,
+    // project description
+    pub description: String,
+    // project owner
+    // pub project_owner: Addr,
+    // target amount project owner want to raise
+    pub target_amount: Coin,
+    /// When end time (in seconds since epoch 00:00:00 UTC on 1 January 1970) is set and
+    /// block time exceeds this value, the crowd funding is expired.
+    /// Once an project is expired, raised amount coins can be returned to the original funder (via "refund").
+    pub deadline: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Increment {},
-    Reset { count: i32 },
+    // anyone can contribute coins to a project
+    Contribute {},
+    // only project owner can withdraw raised funds
+    Withdraw {},
+    // contributors can execute refund after the deadline
+    // if the raised amount didn't satisfy target amount before deadline
+    Refund {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    // GetCount returns the current count as a json-encoded number
-    GetCount {},
+    GetProjectInfo {},
+    GetContribution {
+        address: Addr,
+    },
 }
 
-// We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct CountResponse {
-    pub count: i32,
+pub struct GetProjectInfoResponse {
+    pub title: String,
+    pub description: String,
+    pub project_owner: Addr,
+    pub denom: String,
+    pub target_amount: Uint128,
+    pub deadline: u64,
+
+    pub current_amount: Uint128,
+    pub status: Status,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct GetContributionResponse {
+    pub denom: String,
+    pub amount: Uint128,
 }

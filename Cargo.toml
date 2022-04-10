@@ -1,5 +1,5 @@
 [package]
-name = "simple-option"
+name = "crowd_funding"
 version = "0.1.0"
 authors = ["Watanabe, Shunsuke | Syun | CPD <shunsuke.a.watanabe@rakuten.com>"]
 edition = "2018"

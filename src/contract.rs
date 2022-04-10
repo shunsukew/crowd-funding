@@ -1,12 +1,14 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
-use cw2::set_contract_version;
 use cosmwasm_std::{Addr, Uint128};
+use cw2::set_contract_version;
 
 use crate::error::ContractError;
-use crate::msg::{GetProjectInfoResponse, GetContributionResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{ProjectInfo, PROJECT_INFO, Status, CONTRIBUTIONS};
+use crate::msg::{
+    ExecuteMsg, GetContributionResponse, GetProjectInfoResponse, InstantiateMsg, QueryMsg,
+};
+use crate::state::{ProjectInfo, Status, CONTRIBUTIONS, PROJECT_INFO};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crowd-funding";
@@ -31,7 +33,7 @@ pub fn instantiate(
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     PROJECT_INFO.save(deps.storage, &project_info)?;
-    
+
     Ok(Response::default())
 }
 
@@ -49,19 +51,29 @@ pub fn execute(
     }
 }
 
-pub fn try_contribute(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+pub fn try_contribute(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
     let mut project_info = PROJECT_INFO.load(deps.storage)?;
     if info.sender == project_info.project_owner {
-        return Err(ContractError::CustomError{ val: "project owner cannot contribute".into() })
+        return Err(ContractError::CustomError {
+            val: "project owner cannot contribute".into(),
+        });
     }
 
     if project_info.status != Status::Ongoing {
-        return Err(ContractError::CustomError{ val: "this project is not ongoing".into() })
+        return Err(ContractError::CustomError {
+            val: "this project is not ongoing".into(),
+        });
     }
 
     let now: u64 = env.block.time.clone().seconds();
     if project_info.deadline < now {
-        return Err(ContractError::CustomError{ val: "deadline already exceeded".into() })
+        return Err(ContractError::CustomError {
+            val: "deadline already exceeded".into(),
+        });
     }
 
     // only the same denom is acceptable
@@ -69,7 +81,9 @@ pub fn try_contribute(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Resp
         .funds
         .iter()
         .find(|x| x.denom == project_info.denom)
-        .ok_or_else(|| ContractError::CustomError{ val: format!("Only denom {} accepted", &project_info.denom) })?;
+        .ok_or_else(|| ContractError::CustomError {
+            val: format!("Only denom {} accepted", &project_info.denom),
+        })?;
 
     let contributed_amount = contribute.amount;
 
@@ -82,7 +96,7 @@ pub fn try_contribute(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Resp
         Ok(balance.unwrap_or_default() + contributed_amount)
     })?;
 
-   let res = Response::new()
+    let res = Response::new()
         .add_attribute("action", "contribute")
         .add_attribute("denom", &contribute.denom)
         .add_attribute("amount", contribute.amount);
@@ -146,65 +160,65 @@ mod tests {
 
     //#[test]
     //fn proper_initialization() {
-        //let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
+    //let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
 
-        //let msg = InstantiateMsg { count: 17 };
-        //let info = mock_info("creator", &coins(1000, "earth"));
+    //let msg = InstantiateMsg { count: 17 };
+    //let info = mock_info("creator", &coins(1000, "earth"));
 
-        //// we can just call .unwrap() to assert this was a success
-        //let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        //assert_eq!(0, res.messages.len());
+    //// we can just call .unwrap() to assert this was a success
+    //let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //assert_eq!(0, res.messages.len());
 
-        //// it worked, let's query the state
-        //let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        //let value: CountResponse = from_binary(&res).unwrap();
-        //assert_eq!(17, value.count);
+    //// it worked, let's query the state
+    //let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
+    //let value: CountResponse = from_binary(&res).unwrap();
+    //assert_eq!(17, value.count);
     //}
 
     //#[test]
     //fn increment() {
-        //let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
+    //let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
 
-        //let msg = InstantiateMsg { count: 17 };
-        //let info = mock_info("creator", &coins(2, "token"));
-        //let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //let msg = InstantiateMsg { count: 17 };
+    //let info = mock_info("creator", &coins(2, "token"));
+    //let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-        //// beneficiary can release it
-        //let info = mock_info("anyone", &coins(2, "token"));
-        //let msg = ExecuteMsg::Increment {};
-        //let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //// beneficiary can release it
+    //let info = mock_info("anyone", &coins(2, "token"));
+    //let msg = ExecuteMsg::Increment {};
+    //let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-        //// should increase counter by 1
-        //let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        //let value: CountResponse = from_binary(&res).unwrap();
-        //assert_eq!(18, value.count);
+    //// should increase counter by 1
+    //let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
+    //let value: CountResponse = from_binary(&res).unwrap();
+    //assert_eq!(18, value.count);
     //}
 
     //#[test]
     //fn reset() {
-        //let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
+    //let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
 
-        //let msg = InstantiateMsg { count: 17 };
-        //let info = mock_info("creator", &coins(2, "token"));
-        //let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //let msg = InstantiateMsg { count: 17 };
+    //let info = mock_info("creator", &coins(2, "token"));
+    //let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-        //// beneficiary can release it
-        //let unauth_info = mock_info("anyone", &coins(2, "token"));
-        //let msg = ExecuteMsg::Reset { count: 5 };
-        //let res = execute(deps.as_mut(), mock_env(), unauth_info, msg);
-        //match res {
-            //Err(ContractError::Unauthorized {}) => {}
-            //_ => panic!("Must return unauthorized error"),
-        //}
+    //// beneficiary can release it
+    //let unauth_info = mock_info("anyone", &coins(2, "token"));
+    //let msg = ExecuteMsg::Reset { count: 5 };
+    //let res = execute(deps.as_mut(), mock_env(), unauth_info, msg);
+    //match res {
+    //Err(ContractError::Unauthorized {}) => {}
+    //_ => panic!("Must return unauthorized error"),
+    //}
 
-        //// only the original creator can reset the counter
-        //let auth_info = mock_info("creator", &coins(2, "token"));
-        //let msg = ExecuteMsg::Reset { count: 5 };
-        //let _res = execute(deps.as_mut(), mock_env(), auth_info, msg).unwrap();
+    //// only the original creator can reset the counter
+    //let auth_info = mock_info("creator", &coins(2, "token"));
+    //let msg = ExecuteMsg::Reset { count: 5 };
+    //let _res = execute(deps.as_mut(), mock_env(), auth_info, msg).unwrap();
 
-        //// should now be 5
-        //let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        //let value: CountResponse = from_binary(&res).unwrap();
-        //assert_eq!(5, value.count);
+    //// should now be 5
+    //let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
+    //let value: CountResponse = from_binary(&res).unwrap();
+    //assert_eq!(5, value.count);
     //}
 }

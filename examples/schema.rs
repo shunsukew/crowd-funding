@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use crowd_funding::msg::{GetProjectInfoResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
+use crowd_funding::msg::{ExecuteMsg, GetProjectInfoResponse, InstantiateMsg, QueryMsg};
 use crowd_funding::state::ProjectInfo;
 
 fn main() {

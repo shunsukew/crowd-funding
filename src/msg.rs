@@ -1,7 +1,7 @@
-use schemars::JsonSchema;
+use crate::state::Status;
 use cosmwasm_std::{Addr, Coin, Uint128};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::state::{Status};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -35,9 +35,7 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     GetProjectInfo {},
-    GetContribution {
-        address: Addr,
-    },
+    GetContribution { address: Addr },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -7,100 +7,73 @@ To understand the framework better, please read the overview in the
 and dig into the [cosmwasm docs](https://www.cosmwasm.com).
 This assumes you understand the theory and just want to get coding.
 
-## Creating a new repo from template
+===
 
-Assuming you have a recent version of rust and cargo (v1.58.1+) installed
-(via [rustup](https://rustup.rs/)),
-then the following should get you a new repo to start a contract:
+Simple Crowd Funding Contract
 
-Install [cargo-generate](https://github.com/ashleygwilliams/cargo-generate) and cargo-run-script.
-Unless you did that before, run this line now:
+How to interact with contracts
+https://docs.cosmwasm.com/docs/1.0/getting-started/interact-with-contract
 
-```sh
-cargo install cargo-generate --features vendored-openssl
-cargo install cargo-run-script
+CODE_ID: 1029
+
+```
+RPC=https://rpc.cliffnet.cosmwasm.com:443
+
+# bash
+export NODE="--node $RPC"
+export TXFLAG="${NODE} --chain-id ${CHAIN_ID} --gas-prices 0.025upebble --gas auto --gas-adjustment 1.3"
+
+# zsh
+export NODE=(--node $RPC)
+export TXFLAG=($NODE --chain-id $CHAIN_ID --gas-prices 0.025upebble --gas auto --gas-adjustment 1.3)
 ```
 
-Now, use it to create your new contract.
-Go to the folder in which you want to place it and run:
+**Initialize**
+```
+# Init Message
+INIT='{"target_amount":{"amount":"100","denom":"upebble"},"title":"Test Project","description":"This is a test","end_time":1649667600}'
 
-
-**Latest: 1.0.0-beta6**
-
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --name PROJECT_NAME
-````
-
-**Older Version**
-
-Pass version as branch flag:
-
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch <version> --name PROJECT_NAME
-````
-
-Example:
-
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch 0.16 --name PROJECT_NAME
+# Initialize, wallet address as an contract admin
+wasmd tx wasm instantiate $CODE_ID "$INIT" \
+    --from wallet --label "awesome crowd funding" $TXFLAG -y --admin wasm1285yz3efp8t0aaqqwd5qyedv6g4val0f2e0z3z
 ```
 
-You will now have a new folder called `PROJECT_NAME` (I hope you changed that to something else)
-containing a simple working contract and build system that you can customize.
+Cliff Network
+Init Transaction: https://block-explorer.cliffnet.cosmwasm.com/transactions/995300FC809A98EF4A872395EBD3E8EEFB5F6A83349E63DB2907CC46E48E2C69
 
-## Create a Repo
-
-After generating, you have a initialized local git repo, but no commits, and no remote.
-Go to a server (eg. github) and create a new upstream repo (called `YOUR-GIT-URL` below).
-Then run the following:
-
-```sh
-# this is needed to create a valid Cargo.lock file (see below)
-cargo check
-git branch -M main
-git add .
-git commit -m 'Initial Commit'
-git remote add origin YOUR-GIT-URL
-git push -u origin main
+**Interact with Contract**
 ```
+# Check Contract Address
+CONTRACT=$(wasmd query wasm list-contract-by-code $CODE_ID $NODE --output json | jq -r '.contracts[-1]')
+echo $CONTRACT
 
-## CI Support
+# Check Contract Info
+wasmd query wasm contract $CONTRACT $NODE
+wasmd query bank balances $CONTRACT $NODE
 
-We have template configurations for both [GitHub Actions](.github/workflows/Basic.yml)
-and [Circle CI](.circleci/config.yml) in the generated project, so you can
-get up and running with CI right away.
+# you can dump entire contract state
+wasmd query wasm contract-state all $CONTRACT $NODE
 
-One note is that the CI runs all `cargo` commands
-with `--locked` to ensure it uses the exact same versions as you have locally. This also means
-you must have an up-to-date `Cargo.lock` file, which is not auto-generated.
-The first time you set up the project (or after adding any dep), you should ensure the
-`Cargo.lock` file is updated, so the CI will test properly. This can be done simply by
-running `cargo check` or `cargo unit-test`.
 
-## Using your project
+# Read
+## Get Project Info
+wasmd query wasm contract-state smart $CONTRACT '{"get_project_info":{}}' $NODE 
 
-Once you have your custom repo, you should check out [Developing](./Developing.md) to explain
-more on how to run tests and develop code. Or go through the
-[online tutorial](https://docs.cosmwasm.com/) to get a better feel
-of how to develop.
+## Get Current Contribution
+wasmd query wasm contract-state smart $CONTRACT '{"get_contribution":{"address":"wasm1vv8h0exmzvxhg4d0gvrctwg2ah9e7g38nw4ru6"}}' $NODE
 
-[Publishing](./Publishing.md) contains useful information on how to publish your contract
-to the world, once you are ready to deploy it on a running blockchain. And
-[Importing](./Importing.md) contains information about pulling in other contracts or crates
-that have been published.
+# Write
+## Contribute
+CONTRIBUTE='{"contribute":{}}'
+wasmd tx wasm execute $CONTRACT "$CONTRIBUTE" \
+    --amount 101upebble \
+    --from wallet2 $TXFLAG -y
 
-Please replace this README file with information about your specific project. You can keep
-the `Developing.md` and `Publishing.md` files as useful referenced, but please set some
-proper description in the README.
+WITHDRAW='{"withdraw":{}}'
+wasmd tx wasm execute $CONTRACT "$WITHDRAW" \
+    --from wallet $TXFLAG -y
 
-## Gitpod integration
-
-[Gitpod](https://www.gitpod.io/) container-based development platform will be enabled on your project by default.
-
-Workspace contains:
- - **rust**: for builds
- - [wasmd](https://github.com/CosmWasm/wasmd): for local node setup and client
- - **jq**: shell JSON manipulation tool
-
-Follow [Gitpod Getting Started](https://www.gitpod.io/docs/getting-started) and launch your workspace.
-
+REFUND='{"refund":{}}'
+wasmd tx wasm execute $CONTRACT "$REFUND" \
+    --from wallet2 $TXFLAG -y
+```

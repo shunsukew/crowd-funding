@@ -1,6 +1,9 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cosmwasm_std::{
+    to_binary, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response,
+    StdResult,
+};
 use cosmwasm_std::{Addr, Uint128};
 use cw2::set_contract_version;
 
@@ -27,7 +30,7 @@ pub fn instantiate(
         project_owner: info.sender,
         denom: msg.target_amount.denom,
         target_amount: msg.target_amount.amount,
-        deadline: msg.deadline,
+        end_time: msg.end_time,
         current_amount: Uint128::zero(),
         status: Status::Ongoing,
     };
@@ -46,8 +49,8 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Contribute {} => try_contribute(deps, env, info),
-        ExecuteMsg::Withdraw {} => try_withdraw(deps, info),
-        ExecuteMsg::Refund {} => try_refund(deps, info),
+        ExecuteMsg::Withdraw {} => try_withdraw(deps, env, info),
+        ExecuteMsg::Refund {} => try_refund(deps, env, info),
     }
 }
 
@@ -63,16 +66,10 @@ pub fn try_contribute(
         });
     }
 
-    if project_info.status != Status::Ongoing {
-        return Err(ContractError::CustomError {
-            val: "this project is not ongoing".into(),
-        });
-    }
-
     let now: u64 = env.block.time.clone().seconds();
-    if project_info.deadline < now {
+    if project_info.end_time <= now {
         return Err(ContractError::CustomError {
-            val: "deadline already exceeded".into(),
+            val: "end_time already exceeded".into(),
         });
     }
 
@@ -89,6 +86,11 @@ pub fn try_contribute(
 
     // update current amount
     project_info.current_amount += contributed_amount;
+    if project_info.target_amount <= project_info.current_amount
+        && project_info.status != Status::Succeeded
+    {
+        project_info.status = Status::Succeeded;
+    }
     PROJECT_INFO.save(deps.storage, &project_info)?;
 
     // update contribution map
@@ -104,12 +106,74 @@ pub fn try_contribute(
     Ok(res)
 }
 
-pub fn try_withdraw(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
-    todo!()
+pub fn try_withdraw(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+    let project_info = PROJECT_INFO.load(deps.storage)?;
+    if info.sender != project_info.project_owner {
+        return Err(ContractError::CustomError {
+            val: "only project owner can withdraw".into(),
+        });
+    }
+
+    let now: u64 = env.block.time.clone().seconds();
+    if now < project_info.end_time {
+        return Err(ContractError::CustomError {
+            val: "project not ended".into(),
+        });
+    }
+
+    if project_info.status != Status::Succeeded {
+        return Err(ContractError::CustomError {
+            val: "project not succeeded".into(),
+        });
+    }
+
+    Ok(Response::new().add_message(CosmosMsg::Bank(BankMsg::Send {
+        to_address: project_info.project_owner.into(),
+        amount: vec![Coin::new(
+            project_info.current_amount.into(),
+            project_info.denom,
+        )],
+    })))
 }
 
-pub fn try_refund(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
-    todo!()
+pub fn try_refund(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+    let mut project_info = PROJECT_INFO.load(deps.storage)?;
+
+    let now: u64 = env.block.time.clone().seconds();
+    if now < project_info.end_time {
+        return Err(ContractError::CustomError {
+            val: "project not ended".into(),
+        });
+    }
+
+    if project_info.current_amount < project_info.target_amount {
+        project_info.status = Status::Failed;
+    } else {
+        project_info.status = Status::Succeeded;
+    }
+
+    if project_info.status != Status::Failed {
+        return Err(ContractError::CustomError {
+            val: "project not failed".into(),
+        });
+    }
+
+    let result = CONTRIBUTIONS.may_load(deps.storage, &info.sender)?;
+    match result {
+        Some(amount) => {
+            CONTRIBUTIONS.remove(deps.storage, &info.sender);
+
+            Ok(Response::new().add_message(CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.into(),
+                amount: vec![Coin::new(amount.into(), project_info.denom)],
+            })))
+        }
+        None => {
+            return Err(ContractError::CustomError {
+                val: "no contribution found".into(),
+            })
+        }
+    }
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -123,8 +187,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 fn query_project_info(deps: Deps, env: Env) -> StdResult<GetProjectInfoResponse> {
     let mut project_info = PROJECT_INFO.load(deps.storage)?;
     let now: u64 = env.block.time.clone().seconds();
-    if project_info.deadline < now && project_info.current_amount < project_info.target_amount {
-        project_info.status = Status::Expired;
+    if project_info.end_time < now && project_info.current_amount < project_info.target_amount {
+        project_info.status = Status::Failed;
     }
 
     Ok(GetProjectInfoResponse {
@@ -133,7 +197,7 @@ fn query_project_info(deps: Deps, env: Env) -> StdResult<GetProjectInfoResponse>
         project_owner: project_info.project_owner,
         denom: project_info.denom,
         target_amount: project_info.target_amount,
-        deadline: project_info.deadline,
+        end_time: project_info.end_time,
         current_amount: project_info.current_amount,
         status: project_info.status,
     })

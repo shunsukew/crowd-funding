@@ -14,7 +14,7 @@ pub struct ProjectInfo {
     // in other words, which token can be contributed
     pub denom: String,
     pub target_amount: Uint128,
-    pub deadline: u64,
+    pub end_time: u64,
 
     // current amout of denom token contributed
     pub current_amount: Uint128,
@@ -25,7 +25,7 @@ pub struct ProjectInfo {
 pub enum Status {
     Ongoing,
     Succeeded,
-    Expired,
+    Failed,
 }
 
 pub const PROJECT_INFO: Item<ProjectInfo> = Item::new("project_info");

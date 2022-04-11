@@ -14,9 +14,9 @@ pub struct InstantiateMsg {
     // target amount project owner want to raise
     pub target_amount: Coin,
     /// When end time (in seconds since epoch 00:00:00 UTC on 1 January 1970) is set and
-    /// block time exceeds this value, the crowd funding is expired.
-    /// Once an project is expired, raised amount coins can be returned to the original funder (via "refund").
-    pub deadline: u64,
+    /// block time exceeds this value, the crowd funding is Failed.
+    /// Once an project is Failed, raised amount coins can be returned to the original funder (via "refund").
+    pub end_time: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -26,8 +26,8 @@ pub enum ExecuteMsg {
     Contribute {},
     // only project owner can withdraw raised funds
     Withdraw {},
-    // contributors can execute refund after the deadline
-    // if the raised amount didn't satisfy target amount before deadline
+    // contributors can execute refund after the end_time
+    // if the raised amount didn't satisfy target amount before end_time
     Refund {},
 }
 
@@ -45,7 +45,7 @@ pub struct GetProjectInfoResponse {
     pub project_owner: Addr,
     pub denom: String,
     pub target_amount: Uint128,
-    pub deadline: u64,
+    pub end_time: u64,
 
     pub current_amount: Uint128,
     pub status: Status,

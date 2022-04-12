@@ -1,17 +1,17 @@
 #[cfg(not(feature = "library"))]
-use cosmwasm_std::entry_point;
+use cosmwasm_std::{entry_point};
 use cosmwasm_std::{
     to_binary, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult,
+    StdResult, Addr, Uint128,
 };
-use cosmwasm_std::{Addr, Uint128};
 use cw2::set_contract_version;
+use cw20::{Cw20Contract, Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use crate::error::ContractError;
 use crate::msg::{
-    ExecuteMsg, GetContributionResponse, GetProjectInfoResponse, InstantiateMsg, QueryMsg,
+    ExecuteMsg, GetContributionResponse, GetProjectInfoResponse, InstantiateMsg, QueryMsg, Token
 };
-use crate::state::{ProjectInfo, Status, CONTRIBUTIONS, PROJECT_INFO};
+use crate::state::{ProjectInfo, Status, TokenConfig, CONTRIBUTIONS, PROJECT_INFO, TOKEN_CONFIG};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crowd-funding";
@@ -24,20 +24,35 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    match msg.token {
+        Token::Native { denom } => {
+            TOKEN_CONFIG.save(deps.storage, &TokenConfig::Native{
+                denom,
+            })?;
+        },
+        Token::CW20 { addr} => {
+            TOKEN_CONFIG.save(deps.storage, &TokenConfig::CW20{
+                addr,
+            })?;
+        },
+    }
+    
     let project_info = ProjectInfo {
         title: msg.title,
         description: msg.description,
-        project_owner: info.sender,
-        denom: msg.target_amount.denom,
-        target_amount: msg.target_amount.amount,
+        project_owner: info.sender.clone(),
+        target_amount: msg.target_amount,
         end_time: msg.end_time,
         current_amount: Uint128::zero(),
         status: Status::Ongoing,
     };
+
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     PROJECT_INFO.save(deps.storage, &project_info)?;
 
-    Ok(Response::default())
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("owner", info.sender))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -48,7 +63,11 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        // contribute msg only when token config set to native
         ExecuteMsg::Contribute {} => try_contribute(deps, env, info),
+        // recieve msg only when token config set to cw20.
+        // To contribute, user need to send cw20 token to this contract address, then recieve msg is hooked.
+        ExecuteMsg::Receive(msg) => try_recieve_and_contribute(deps, env, info, msg),
         ExecuteMsg::Withdraw {} => try_withdraw(deps, env, info),
         ExecuteMsg::Refund {} => try_refund(deps, env, info),
     }
@@ -59,6 +78,20 @@ pub fn try_contribute(
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
+    let token_config = TOKEN_CONFIG.load(deps.storage)?;
+
+    let config_denom: String;
+    match token_config {
+        TokenConfig::Native{ denom } => {
+            config_denom = denom;
+        }
+        TokenConfig::CW20{ addr: _ } => {
+            return Err(ContractError::CustomError {
+                val: "contribute msg is available only when token config set to Native".into(),
+            });
+        }
+    }
+
     let mut project_info = PROJECT_INFO.load(deps.storage)?;
     if info.sender == project_info.project_owner {
         return Err(ContractError::CustomError {
@@ -77,9 +110,9 @@ pub fn try_contribute(
     let contribute = info
         .funds
         .iter()
-        .find(|x| x.denom == project_info.denom)
+        .find(|x| x.denom == config_denom)
         .ok_or_else(|| ContractError::CustomError {
-            val: format!("Only denom {} accepted", &project_info.denom),
+            val: format!("Only denom {} accepted", &config_denom),
         })?;
 
     let contributed_amount = contribute.amount;
@@ -106,7 +139,72 @@ pub fn try_contribute(
     Ok(res)
 }
 
+pub fn try_recieve_and_contribute (deps: DepsMut, env: Env, info: MessageInfo, wrapped: Cw20ReceiveMsg) -> Result<Response, ContractError> {
+    let token_config = TOKEN_CONFIG.load(deps.storage)?;
+
+    let config_cw20_addr: Addr;
+    match token_config {
+        TokenConfig::Native{ denom: _ } => {
+            return Err(ContractError::CustomError {
+                val: "contribute msg is available only when token config set to Native".into(),
+            });
+        }
+        TokenConfig::CW20{ addr } => {
+            config_cw20_addr = addr;
+        }
+    }
+
+    let mut project_info = PROJECT_INFO.load(deps.storage)?;
+    // wrapped.sender is original msg executor
+    if wrapped.sender == project_info.project_owner {
+        return Err(ContractError::CustomError {
+            val: "project owner cannot contribute".into(),
+        });
+    }
+
+    let now: u64 = env.block.time.clone().seconds();
+    if project_info.end_time <= now {
+        return Err(ContractError::CustomError {
+            val: "end_time already exceeded".into(),
+        });
+    }
+
+    // info.sender is cw20 contract address
+    // only configured cw20 token acceptable
+    if info.sender != config_cw20_addr {
+        return Err(ContractError::CustomError {
+            val: "wrong cw20 token recieved".into(),
+        });
+    }
+
+    // wrapped.amount is amount of cw20 which is sent
+    let contributed_amount = wrapped.amount;
+
+    // update current amount
+    project_info.current_amount += contributed_amount;
+    if project_info.target_amount <= project_info.current_amount
+        && project_info.status != Status::Succeeded
+    {
+        project_info.status = Status::Succeeded;
+    }
+    PROJECT_INFO.save(deps.storage, &project_info)?;
+
+    // update contribution map
+    CONTRIBUTIONS.update(deps.storage, &info.sender, |balance| -> StdResult<_> {
+        Ok(balance.unwrap_or_default() + contributed_amount)
+    })?;
+
+    let res = Response::new()
+        .add_attribute("action", "contribute")
+        .add_attribute("cw20_address", &config_cw20_addr)
+        .add_attribute("amount", contributed_amount);
+
+    Ok(res)
+}
+
 pub fn try_withdraw(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+    let token_config = TOKEN_CONFIG.load(deps.storage)?;
+
     let project_info = PROJECT_INFO.load(deps.storage)?;
     if info.sender != project_info.project_owner {
         return Err(ContractError::CustomError {
@@ -127,16 +225,32 @@ pub fn try_withdraw(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Respon
         });
     }
 
-    Ok(Response::new().add_message(CosmosMsg::Bank(BankMsg::Send {
-        to_address: project_info.project_owner.into(),
-        amount: vec![Coin::new(
-            project_info.current_amount.into(),
-            project_info.denom,
-        )],
-    })))
+    let msg: CosmosMsg;
+    match token_config {
+        TokenConfig::Native{ denom } => {
+            msg = CosmosMsg::Bank(BankMsg::Send {
+                to_address: project_info.project_owner.into(),
+                amount: vec![Coin::new(
+                    project_info.current_amount.into(),
+                    denom,
+                )],
+            });
+        },
+        TokenConfig::CW20{ addr } => {
+            let cw20 = Cw20Contract(addr);
+            msg = cw20.call(Cw20ExecuteMsg::Transfer {
+                recipient: project_info.project_owner.into(),
+                amount: project_info.current_amount.into(),
+            })?;
+        },
+    }
+
+    Ok(Response::new()
+        .add_message(msg))
 }
 
 pub fn try_refund(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+    let token_config = TOKEN_CONFIG.load(deps.storage)?;
     let mut project_info = PROJECT_INFO.load(deps.storage)?;
 
     let now: u64 = env.block.time.clone().seconds();
@@ -159,21 +273,36 @@ pub fn try_refund(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response
     }
 
     let result = CONTRIBUTIONS.may_load(deps.storage, &info.sender)?;
-    match result {
-        Some(amount) => {
-            CONTRIBUTIONS.remove(deps.storage, &info.sender);
-
-            Ok(Response::new().add_message(CosmosMsg::Bank(BankMsg::Send {
-                to_address: info.sender.into(),
-                amount: vec![Coin::new(amount.into(), project_info.denom)],
-            })))
-        }
-        None => {
-            return Err(ContractError::CustomError {
-                val: "no contribution found".into(),
-            })
-        }
+    if result.is_none() {
+        return Err(ContractError::CustomError {
+            val: "no contribution found".into(),
+        })
     }
+    // result is not None here
+    let refund_amount = result.unwrap();
+
+    let msg: CosmosMsg;
+    match token_config {
+        TokenConfig::Native{ denom } => {
+            msg = CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.into(),
+                amount: vec![Coin::new(
+                    refund_amount.into(),
+                    denom,
+                )],
+            });
+        },
+        TokenConfig::CW20{ addr } => {
+            let cw20 = Cw20Contract(addr);
+            msg = cw20.call(Cw20ExecuteMsg::Transfer {
+                recipient: info.sender.into(),
+                amount: refund_amount.into(),
+            })?;
+        },
+    }
+
+    Ok(Response::new()
+        .add_message(msg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -185,6 +314,15 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 fn query_project_info(deps: Deps, env: Env) -> StdResult<GetProjectInfoResponse> {
+    let token_config = TOKEN_CONFIG.load(deps.storage)?;
+    let token = match token_config {
+        TokenConfig::Native{ denom } => {
+            Token::Native{denom}
+        },
+        TokenConfig::CW20{ addr } => {
+            Token::CW20{addr}
+        }
+    };
     let mut project_info = PROJECT_INFO.load(deps.storage)?;
     let now: u64 = env.block.time.clone().seconds();
     if project_info.end_time < now && project_info.current_amount < project_info.target_amount {
@@ -195,7 +333,7 @@ fn query_project_info(deps: Deps, env: Env) -> StdResult<GetProjectInfoResponse>
         title: project_info.title,
         description: project_info.description,
         project_owner: project_info.project_owner,
-        denom: project_info.denom,
+        token: token,
         target_amount: project_info.target_amount,
         end_time: project_info.end_time,
         current_amount: project_info.current_amount,
@@ -204,14 +342,23 @@ fn query_project_info(deps: Deps, env: Env) -> StdResult<GetProjectInfoResponse>
 }
 
 fn query_contribution(deps: Deps, address: Addr) -> StdResult<GetContributionResponse> {
-    let project_info = PROJECT_INFO.load(deps.storage)?;
+    let token_config = TOKEN_CONFIG.load(deps.storage)?;
+    let token = match token_config {
+        TokenConfig::Native{ denom } => {
+            Token::Native{denom}
+        },
+        TokenConfig::CW20{ addr } => {
+            Token::CW20{addr}
+        }
+    };
+
     let contribution = CONTRIBUTIONS.may_load(deps.storage, &address)?;
     let contributed_amount = match contribution {
         Some(amount) => amount,
         None => Uint128::zero(),
     };
     Ok(GetContributionResponse {
-        denom: project_info.denom,
+        token: token,
         amount: contributed_amount,
     })
 }

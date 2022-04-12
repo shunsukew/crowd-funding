@@ -66,7 +66,7 @@ pub fn execute(
         // contribute msg only when token config set to native
         ExecuteMsg::Contribute {} => try_contribute(deps, env, info),
         // recieve msg only when token config set to cw20.
-        // To contribute, user need to send cw20 token to this contract address, then recieve msg is hooked
+        // To contribute, user need to send cw20 token to this contract address, then recieve msg is hooked.
         ExecuteMsg::Receive(msg) => try_recieve_and_contribute(deps, env, info, msg),
         ExecuteMsg::Withdraw {} => try_withdraw(deps, env, info),
         ExecuteMsg::Refund {} => try_refund(deps, env, info),

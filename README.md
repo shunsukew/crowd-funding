@@ -101,10 +101,10 @@ EXECUTE='{"send":{"contract":"CROWDFUNDING_CONTRACT_ADDRESS","amount":"10000", "
 wasmd tx wasm execute $CW20_CONTRACT $EXECUTE --from wallet $TXFLAG -y
 
 WITHDRAW='{"withdraw":{}}'
-wasmd tx wasm execute $CONTRACT "$WITHDRAW" \
+wasmd tx wasm execute $CROWDFUNDING_CONTRACT "$WITHDRAW" \
     --from wallet $TXFLAG -y
 
 REFUND='{"refund":{}}'
-wasmd tx wasm execute $CONTRACT "$REFUND" \
+wasmd tx wasm execute $CROWDFUNDING_CONTRACT "$REFUND" \
     --from wallet2 $TXFLAG -y
 ```

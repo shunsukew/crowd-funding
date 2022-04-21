@@ -108,3 +108,87 @@ REFUND='{"refund":{}}'
 wasmd tx wasm execute $CROWDFUNDING_CONTRACT "$REFUND" \
     --from wallet2 $TXFLAG -y
 ```
+
+# Demo Procedure
+Notion: https://www.notion.so/staketechnologies/CosmWasm-f9836b9d173547d78e4059a733f55ed8
+Explorer: https://block-explorer.cliffnet.cosmwasm.com
+
+## Templating
+```
+cargo generate --git https://github.com/CosmWasm/cosmwasm-template.git --name my-first-contract
+cd my-first-contract
+```
+
+## Setup Env variables
+```
+RPC=https://rpc.cliffnet.cosmwasm.com:443
+
+export NODE=(--node $RPC)
+export TXFLAG=($NODE --chain-id $CHAIN_ID --gas-prices 0.025upebble --gas auto --gas-adjustment 1.3)
+```
+
+## Check Keys, Balances
+```
+wasmd keys list
+wasmd query bank balances $(wasmd keys show -a wallet) $NODE
+wasmd query bank balances $(wasmd keys show -a wallet2) $NODE
+```
+
+## Compile, Test
+```
+RUST_BACKTRACE=1 cargo unit-test
+RUSTFLAGS='-C link-arg=-s' cargo wasm
+```
+
+## Upload Contract
+```
+RES=$(wasmd tx wasm store target/wasm32-unknown-unknown/release/crowd_funding.wasm --from wallet $TXFLAG -y --output json -b block)
+CODE_ID=$(echo $RES | jq -r '.logs[0].events[-1].attributes[0].value')
+wasmd query wasm list-contract-by-code $CODE_ID $NODE --output json
+```
+
+## Instantiate
+```
+INIT='{"token":{"Native":{"denom":"upebble"}},"target_amount":"100","title":"Test Project Native Token Funding","description":"This is a test with native token","end_time":1649899800}'
+
+wasmd tx wasm instantiate $CODE_ID "$INIT" \
+    --from wallet --label "awesome crowd funding" $TXFLAG -y --admin $(wasmd keys show -a wallet)
+
+CONTRACT=$(wasmd query wasm list-contract-by-code $CODE_ID $NODE --output json | jq -r '.contracts[-1]')
+echo $CONTRACT
+
+wasmd query wasm contract $CONTRACT $NODE
+wasmd query bank balances $CONTRACT $NODE
+```
+
+## Query
+```
+wasmd query wasm contract-state smart $CONTRACT '{"get_project_info":{}}' $NODE 
+
+wasmd query wasm contract-state smart $CONTRACT '{"get_contribution":{"address":"wasm1vv8h0exmzvxhg4d0gvrctwg2ah9e7g38nw4ru6"}}' $NODE
+```
+
+## Excute
+```
+# check balance of contributor
+wasmd query bank balances $(wasmd keys show -a wallet2) $NODE
+
+CONTRIBUTE='{"contribute":{}}'
+wasmd tx wasm execute $CONTRACT "$CONTRIBUTE" \
+    --amount 1000000upebble \
+    --from wallet2 $TXFLAG -y
+
+# Check balance of project owner
+wasmd query bank balances $(wasmd keys show -a wallet) $NODE
+
+WITHDRAW='{"withdraw":{}}'
+wasmd tx wasm execute $CONTRACT "$WITHDRAW" \
+    --from wallet $TXFLAG -y
+
+# Check balance of project owner again
+wasmd query bank balances $(wasmd keys show -a wallet) $NODE
+```
+
+
+# Terrain
+https://docs.terra.money/docs/develop/dapp/quick-start/using-terrain-localterra.html
